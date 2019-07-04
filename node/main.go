@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -9,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/coocood/badger"
@@ -39,6 +41,7 @@ var (
 	syncWrites       = flag.Bool("sync-write", true, "Sync all writes to disk. Setting this to true would slow down data loading significantly.")
 	maxProcs         = flag.Int("max-procs", 0, "Max CPU cores to use, set 0 to use all CPU cores in the machine.")
 	raft             = flag.Bool("raft", false, "enable raft")
+	logPath          = flag.String("log-path", "", "log path")
 )
 
 var (
@@ -53,6 +56,13 @@ const (
 func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(*maxProcs)
+
+	if *logPath != "" {
+		if err := log.SetOutputByName(*logPath); err != nil {
+			panic(err)
+		}
+	}
+
 	log.Info("gitHash:", gitHash)
 	log.SetLevelByString(*logLevel)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
@@ -63,6 +73,10 @@ func main() {
 			log.Fatal(err)
 		}
 	}()
+
+	if err := os.MkdirAll(*dbPath, os.ModePerm); err != nil {
+		log.Fatal(err)
+	}
 
 	safePoint := &tikv.SafePoint{}
 	db := createDB("kv", safePoint)
@@ -96,7 +110,7 @@ func main() {
 		grpc.MaxRecvMsgSize(10*1024*1024),
 	)
 	tikvpb.RegisterTikvServer(grpcServer, tikvServer)
-	l, err := net.Listen("tcp", *storeAddr)
+	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", strings.Split(*storeAddr, ":")[1]))
 	if err != nil {
 		log.Fatal(err)
 	}
